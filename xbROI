@@ -203,28 +203,23 @@ function analyzeData(data) {
         return;
     }
 
-    // 二次多项式回归
     let points = validData.map(i => [i.x, i.y]);
     let result = regression.polynomial(points, { order: 2 });
     let a = result.equation[0];
     let b = result.equation[1];
     let c = result.equation[2];
 
-    // 计算峰值最优解
     let 最优续保成功率 = -b / (2 * a);
     最优续保成功率 = Math.min(Math.max(最优续保成功率, 0.3), 0.95);
     let 峰值ROI = a * 最优续保成功率**2 + b * 最优续保成功率 + c;
 
-    // 统计
     let avgROI = validData.reduce((s, i) => s + i.roi, 0) / validData.length;
     let profitCount = validData.filter(i => i.roi > 0).length;
     let profitRatio = (profitCount / validData.length * 100).toFixed(1) + "%";
     let r2 = result.r2.toFixed(4);
 
-    // 生成图表
     renderChart(validData, result.points, 最优续保成功率, 峰值ROI);
 
-    // 显示结果
     showResult({
         dataCount: validData.length,
         bestRate: (最优续保成功率*100).toFixed(1)+"%",
@@ -237,7 +232,6 @@ function analyzeData(data) {
         conclusion: 峰值ROI>0 ? "健康可盈利" : "需优化成本/成功率"
     });
 
-    // 生成建议
     genAdvice(最优续保成功率, 峰值ROI, avgROI);
     document.getElementById("resultSection").style.display = "block";
 }
@@ -310,7 +304,6 @@ function genAdvice(bestX, peakROI, avgROI) {
     html += "✅ 【单车赠送成本】：建议控制在 200-350 元，过高会直接吞噬利润<br>";
     html += "✅ 【人员工资】：建议 5000-9000 元区间，兼顾人效与成本<br>";
     html += "✅ 【经营策略】：" + (peakROI>0 ? "当前模型可盈利，优先提升成功率至最优区间" : "需降低单车成本/优化人员工资") + "<br>";
-    html += "✅ 【BI应用】：可将最优成功率直接用于FineBI做监控看板、预警、阈值提醒";
     document.getElementById("adviceText").innerHTML = html;
 }
 </script>
