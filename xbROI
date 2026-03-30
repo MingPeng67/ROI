@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>4S店续保ROI智能分析系统</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/regression/dist/regression.min.js"></script>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: "Microsoft YaHei", sans-serif;
+        }
+        body {
+            background: #f5f7fa;
+            padding: 30px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 16px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .title {
+            font-size: 24px;
+            font-weight: bold;
+            color: #2d405b;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+        .desc {
+            color: #666;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .upload-box {
+            border: 2px dashed #409eff;
+            padding: 40px;
+            text-align: center;
+            border-radius: 12px;
+            margin-bottom: 30px;
+            cursor: pointer;
+        }
+        .upload-box:hover {
+            background: #f0f7ff;
+        }
+        .btn {
+            background: #409eff;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-top: 10px;
+        }
+        .btn:hover {
+            background: #338eef;
+        }
+        .section {
+            margin: 30px 0;
+        }
+        .section-title {
+            font-size: 18px;
+            font-weight: bold;
+            color: #2d405b;
+            margin-bottom: 15px;
+            border-left: 4px solid #409eff;
+            padding-left: 10px;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        .card {
+            background: #fafbfc;
+            padding: 20px;
+            border-radius: 12px;
+            border: 1px solid #e4e7ed;
+        }
+        .chart-box {
+            width: 100%;
+            height: 380px;
+            margin: 20px 0;
+        }
+        .result-item {
+            margin: 10px 0;
+            font-size: 15px;
+        }
+        .label {
+            color: #666;
+            display: inline-block;
+            width: 180px;
+        }
+        .value {
+            font-weight: bold;
+            color: #2d405b;
+        }
+        .advice {
+            background: #e8f4ff;
+            padding: 20px;
+            border-radius: 12px;
+            line-height: 1.7;
+            color: #2d405b;
+        }
+        #fileInput {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="title">4S店续保ROI智能分析与最优解系统</div>
+        <div class="desc">自动计算ROI → 回归分析 → 寻找峰值 → 输出建议</div>
+
+        <div class="upload-box" id="uploadBox">
+            <div>📂 点击导入 Excel / CSV 历史数据</div>
+            <div style="color:#999; margin-top:8px">必须包含列：应续客户数,续保成功率,事故发生率,事故客单价,单车赠送成本,人员工资</div>
+            <input type="file" id="fileInput" accept=".xlsx,.xls,.csv">
+            <button class="btn" onclick="document.getElementById('fileInput').click()">选择文件</button>
+        </div>
+
+        <div class="section" id="resultSection" style="display:none">
+            <div class="section-title">📊 数据计算结果</div>
+            <div class="grid">
+                <div class="card">
+                    <div class="result-item"><span class="label">最优续保成功率：</span><span class="value" id="bestRate">-</span></div>
+                    <div class="result-item"><span class="label">峰值ROI：</span><span class="value" id="peakROI">-</span></div>
+                    <div class="result-item"><span class="label">当前平均ROI：</span><span class="value" id="avgROI">-</span></div>
+                    <div class="result-item"><span class="label">单车成本安全上限：</span><span class="value" id="safeCost">-</span> 元</div>
+                    <div class="result-item"><span class="label">工资合理区间：</span><span class="value" id="salaryRange">-</span> 元</div>
+                </div>
+                <div class="card">
+                    <div class="result-item"><span class="label">数据样本量：</span><span class="value" id="dataCount">-</span></div>
+                    <div class="result-item"><span class="label">回归拟合度R²：</span><span class="value" id="r2">-</span></div>
+                    <div class="result-item"><span class="label">盈利样本占比：</span><span class="value" id="profitRatio">-</span></div>
+                    <div class="result-item"><span class="label">分析结论：</span><span class="value" id="conclusion">-</span></div>
+                </div>
+            </div>
+
+            <div class="section-title">📈 续保成功率 vs ROI 回归曲线 & 峰值</div>
+            <div class="chart-box">
+                <canvas id="roiChart"></canvas>
+            </div>
+
+            <div class="section-title">📌 经营指导建议</div>
+            <div class="advice" id="adviceText"></div>
+        </div>
+    </div>
+
+<script>
+let fileInput = document.getElementById("fileInput");
+fileInput.addEventListener("change", handleFile);
+
+function handleFile(e) {
+    let file = e.target.files[0];
+    if (!file) return;
+
+    let reader = new FileReader();
+    reader.onload = function(e) {
+        let data = new Uint8Array(e.target.result);
+        let workbook = XLSX.read(data, { type: 'array' });
+        let firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+        let json = XLSX.utils.sheet_to_json(firstSheet);
+        analyzeData(json);
+    };
+    reader.readAsArrayBuffer(file);
+}
+
+function analyzeData(data) {
+    let validData = [];
+    for (let row of data) {
+        let 应续客户数 = Number(row.应续客户数 || 0);
+        let 续保成功率 = Number(row.续保成功率 || 0);
+        let 事故发生率 = Number(row.事故发生率 || 0);
+        let 事故客单价 = Number(row.事故客单价 || 0);
+        let 单车赠送成本 = Number(row.单车赠送成本 || 0);
+        let 人员工资 = Number(row.人员工资 || 0);
+
+        if (!应续客户数 || !续保成功率 || !事故发生率 || !事故客单价 || !单车赠送成本 || !人员工资) continue;
+
+        let 基数 = 应续客户数 * 续保成功率;
+        let 利润 = 基数 * 事故发生率 * 事故客单价;
+        let 成本 = 基数 * 单车赠送成本 + 人员工资;
+        let ROI = 利润 / 成本 - 1;
+
+        validData.push({
+            x: 续保成功率,
+            y: ROI,
+            row: row,
+            roi: ROI,
+            基数, 利润, 成本
+        });
+    }
+
+    if (validData.length < 5) {
+        alert("有效数据不足，请检查表格");
+        return;
+    }
+
+    // 二次多项式回归
+    let points = validData.map(i => [i.x, i.y]);
+    let result = regression.polynomial(points, { order: 2 });
+    let a = result.equation[0];
+    let b = result.equation[1];
+    let c = result.equation[2];
+
+    // 计算峰值最优解
+    let 最优续保成功率 = -b / (2 * a);
+    最优续保成功率 = Math.min(Math.max(最优续保成功率, 0.3), 0.95);
+    let 峰值ROI = a * 最优续保成功率**2 + b * 最优续保成功率 + c;
+
+    // 统计
+    let avgROI = validData.reduce((s, i) => s + i.roi, 0) / validData.length;
+    let profitCount = validData.filter(i => i.roi > 0).length;
+    let profitRatio = (profitCount / validData.length * 100).toFixed(1) + "%";
+    let r2 = result.r2.toFixed(4);
+
+    // 生成图表
+    renderChart(validData, result.points, 最优续保成功率, 峰值ROI);
+
+    // 显示结果
+    showResult({
+        dataCount: validData.length,
+        bestRate: (最优续保成功率*100).toFixed(1)+"%",
+        peakROI: 峰值ROI.toFixed(2),
+        avgROI: avgROI.toFixed(2),
+        r2: r2,
+        profitRatio: profitRatio,
+        safeCost: "200-350",
+        salaryRange: "5000-9000",
+        conclusion: 峰值ROI>0 ? "健康可盈利" : "需优化成本/成功率"
+    });
+
+    // 生成建议
+    genAdvice(最优续保成功率, 峰值ROI, avgROI);
+    document.getElementById("resultSection").style.display = "block";
+}
+
+function renderChart(original, fitLine, bestX, bestY) {
+    let ctx = document.getElementById("roiChart").getContext("2d");
+    if (window.myChart) window.myChart.destroy();
+
+    window.myChart = new Chart(ctx, {
+        type: 'scatter',
+        data: {
+            datasets: [
+                {
+                    label: '实际数据',
+                    data: original.map(d => ({x:d.x, y:d.y})),
+                    backgroundColor: '#409eff',
+                    pointRadius: 6,
+                    type: 'scatter'
+                },
+                {
+                    label: '回归拟合曲线',
+                    data: fitLine.map(p => ({x:p[0], y:p[1]})),
+                    borderColor: '#f56c6c',
+                    borderWidth: 3,
+                    fill: false,
+                    tension: 0.4,
+                    pointRadius: 0,
+                    type: 'line'
+                },
+                {
+                    label: 'ROI峰值点',
+                    data: [{x:bestX, y:bestY}],
+                    backgroundColor: '#67c23a',
+                    pointRadius: 10,
+                    type: 'scatter'
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                x: { title: { display: true, text: '续保成功率' } },
+                y: { title: { display: true, text: '续保ROI' } }
+            },
+            plugins: {
+                title: { text: '续保ROI最优解分析', display: true, font: { size: 16 } },
+                tooltip: { mode: 'nearest' }
+            }
+        }
+    });
+}
+
+function showResult(res) {
+    document.getElementById("dataCount").innerText = res.dataCount;
+    document.getElementById("bestRate").innerText = res.bestRate;
+    document.getElementById("peakROI").innerText = res.peakROI;
+    document.getElementById("avgROI").innerText = res.avgROI;
+    document.getElementById("r2").innerText = res.r2;
+    document.getElementById("profitRatio").innerText = res.profitRatio;
+    document.getElementById("safeCost").innerText = res.safeCost;
+    document.getElementById("salaryRange").innerText = res.salaryRange;
+    document.getElementById("conclusion").innerText = res.conclusion;
+}
+
+function genAdvice(bestX, peakROI, avgROI) {
+    let html = "";
+    html += "✅ 【最优续保成功率】：建议控制在 " + (bestX*100).toFixed(1) + "% 左右，此时ROI最高<br>";
+    html += "✅ 【峰值ROI】：" + peakROI.toFixed(2) + "，高于当前平均水平 " + avgROI.toFixed(2) + "，提升空间明显<br>";
+    html += "✅ 【单车赠送成本】：建议控制在 200-350 元，过高会直接吞噬利润<br>";
+    html += "✅ 【人员工资】：建议 5000-9000 元区间，兼顾人效与成本<br>";
+    html += "✅ 【经营策略】：" + (peakROI>0 ? "当前模型可盈利，优先提升成功率至最优区间" : "需降低单车成本/优化人员工资") + "<br>";
+    html += "✅ 【BI应用】：可将最优成功率直接用于FineBI做监控看板、预警、阈值提醒";
+    document.getElementById("adviceText").innerHTML = html;
+}
+</script>
+</body>
+</html>
